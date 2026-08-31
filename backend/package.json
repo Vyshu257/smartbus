@@ -1,0 +1,17 @@
+{
+  "name": "smartbus-backend",
+  "version": "0.1.0",
+  "description": "SmartBus REST API - live bus discovery for APSRTC passengers (prototype, mock data)",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "dev": "node --watch server.js",
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2",
+    "nanoid": "^5.0.7"
+  }
+}
