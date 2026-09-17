@@ -1,4 +1,4 @@
-import { AVG_SPEED_KMPH } from "../data/buses.js";
+import { AVG_SPEED_KMPH } from "../data/seedBuses.js";
 
 /**
  * Rule-based ETA: distance remaining / average speed.

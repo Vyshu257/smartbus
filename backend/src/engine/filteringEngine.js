@@ -1,4 +1,4 @@
-import { stopIndexOnRoute } from "../data/routes.js";
+import { stopIndexOnRoute } from "../data/store.js";
 import { estimateEtaMinutes, estimateCatchability } from "./etaEngine.js";
 import { estimateOccupancy } from "./occupancyEngine.js";
 

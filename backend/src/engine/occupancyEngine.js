@@ -1,4 +1,4 @@
-import { stopIndexOnRoute } from "../data/routes.js";
+import { stopIndexOnRoute } from "../data/store.js";
 
 // Configurable crowd thresholds (spec section 18) - tune per operator/route.
 export const CROWD_THRESHOLDS = { low: 40, moderate: 75 };

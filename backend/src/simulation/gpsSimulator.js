@@ -1,6 +1,5 @@
-import { buses } from "../data/buses.js";
-import { getRouteById } from "../data/routes.js";
-import { AVG_SPEED_KMPH } from "../data/buses.js";
+import { getRouteById, store } from "../data/store.js";
+import { AVG_SPEED_KMPH } from "../data/seedBuses.js";
 
 const TICK_MS = 5000; // "Live Simulation" tick interval
 
@@ -14,7 +13,7 @@ const TICK_MS = 5000; // "Live Simulation" tick interval
 export function startGpsSimulation() {
   const timer = setInterval(() => {
     const now = Date.now();
-    for (const trip of buses) {
+    for (const trip of store.buses) {
       if (trip.status !== "ACTIVE") continue;
 
       const route = getRouteById(trip.routeId);

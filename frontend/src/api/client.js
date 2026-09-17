@@ -48,5 +48,13 @@ export const api = {
   login: (email, password) => request("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
   register: (email, password, role) =>
     request("/auth/register", { method: "POST", body: JSON.stringify({ email, password, role }) }),
-  adminOverview: () => request("/admin/overview"),
+  getAdminOverview: () => request("/admin/overview"),
+  getAdminStops: () => request("/admin/stops"),
+  addAdminStop: (stop) => request("/admin/stops", { method: "POST", body: JSON.stringify(stop) }),
+  getAdminRoutes: () => request("/admin/routes"),
+  addAdminRoute: (route) => request("/admin/routes", { method: "POST", body: JSON.stringify(route) }),
+  getAdminBuses: () => request("/admin/buses"),
+  addAdminBus: (bus) => request("/admin/buses", { method: "POST", body: JSON.stringify(bus) }),
+  updateAdminBus: (tripId, patch) => request(`/admin/buses/${tripId}`, { method: "PUT", body: JSON.stringify(patch) }),
+  importAdminData: (dataset) => request("/admin/import", { method: "POST", body: JSON.stringify(dataset) }),
 };

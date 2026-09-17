@@ -1,11 +1,11 @@
 import { Router } from "express";
 import { nanoid } from "nanoid";
+import { getStopByName } from "../data/store.js";
 import { findAvailableBuses, attachOccupancy } from "../engine/filteringEngine.js";
 import { recommendBus } from "../engine/recommendationEngine.js";
 import { estimateOccupancy } from "../engine/occupancyEngine.js";
 import { interpolatePosition } from "../engine/geo.js";
 import { buildStopTimeline } from "../engine/timelineEngine.js";
-import { getStopByName, searchStops } from "../data/stops.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 
 export default function buildApiRouter(provider) {
@@ -49,17 +49,6 @@ export default function buildApiRouter(provider) {
   router.get("/stops", async (_req, res) => {
     res.json(await provider.getStops());
   });
-  router.get("/stops/search", (req, res) => {
-  const { q } = req.query;
-
-  if (!q || q.trim().length === 0) {
-    return res.json([]);
-  }
-
-  const results = searchStops(q);
-
-  res.json(results);
-});
 
   router.get("/routes", async (_req, res) => {
     res.json(await provider.getRoutes());
@@ -240,17 +229,125 @@ export default function buildApiRouter(provider) {
   });
 
   // ---- Admin (spec section 24) -------------------------------------------
+  // Full CRUD so real data (once you have it) can be entered without
+  // touching code - add stops/routes/buses one at a time, or bulk-import
+  // a whole dataset at once. Everything added here is written to
+  // backend/data/runtime-additions.json so it survives a server restart.
 
   router.get("/admin/overview", requireAuth, requireRole("ADMIN"), async (_req, res) => {
     const trips = await provider.getActiveTrips();
     const routes = await provider.getRoutes();
+    const stops = await provider.getStops();
     res.json({
       totalBuses: trips.length,
       activeBuses: trips.filter((t) => t.status === "ACTIVE").length,
       completedTrips: trips.filter((t) => t.status === "COMPLETED").length,
       notStarted: trips.filter((t) => t.status === "NOT_STARTED").length,
       availableRoutes: routes.length,
+      totalStops: stops.length,
     });
+  });
+
+  router.get("/admin/stops", requireAuth, requireRole("ADMIN"), async (_req, res) => {
+    res.json(await provider.getStops());
+  });
+
+  router.post("/admin/stops", requireAuth, requireRole("ADMIN"), async (req, res) => {
+    const { name, lat, lng } = req.body || {};
+    if (!name || lat == null || lng == null) {
+      return res.status(400).json({ error: "name, lat and lng are required" });
+    }
+    const stop = { id: `stp_${nanoid(8)}`, name, lat: Number(lat), lng: Number(lng) };
+    if (!provider.addStop) return res.status(501).json({ error: "Current data provider doesn't support adding stops" });
+    res.status(201).json(await provider.addStop(stop));
+  });
+
+  router.get("/admin/routes", requireAuth, requireRole("ADMIN"), async (_req, res) => {
+    res.json(await provider.getRoutes());
+  });
+
+  router.post("/admin/routes", requireAuth, requireRole("ADMIN"), async (req, res) => {
+    const { name, stopIds, cumulativeKm, scheduledMinutesFromStart } = req.body || {};
+    if (!name || !Array.isArray(stopIds) || stopIds.length < 2) {
+      return res.status(400).json({ error: "name and at least 2 stopIds (in travel order) are required" });
+    }
+    if (!Array.isArray(cumulativeKm) || cumulativeKm.length !== stopIds.length) {
+      return res.status(400).json({ error: "cumulativeKm must have one entry per stop, in the same order" });
+    }
+    const stops = await provider.getStops();
+    const known = new Set(stops.map((s) => s.id));
+    const unknown = stopIds.filter((id) => !known.has(id));
+    if (unknown.length) {
+      return res.status(400).json({ error: `Unknown stop id(s): ${unknown.join(", ")}` });
+    }
+    const route = {
+      id: `rt_${nanoid(8)}`,
+      name,
+      origin: stopIds[0],
+      destination: stopIds[stopIds.length - 1],
+      stopIds,
+      cumulativeKm: cumulativeKm.map(Number),
+      scheduledMinutesFromStart: (scheduledMinutesFromStart || cumulativeKm).map(Number),
+    };
+    if (!provider.addRoute) return res.status(501).json({ error: "Current data provider doesn't support adding routes" });
+    res.status(201).json(await provider.addRoute(route));
+  });
+
+  router.get("/admin/buses", requireAuth, requireRole("ADMIN"), async (_req, res) => {
+    res.json(await provider.getActiveTrips());
+  });
+
+  router.post("/admin/buses", requireAuth, requireRole("ADMIN"), async (req, res) => {
+    const { busNumber, serviceNumber, serviceType, routeId, capacity, status } = req.body || {};
+    if (!busNumber || !serviceNumber || !routeId || !capacity) {
+      return res.status(400).json({ error: "busNumber, serviceNumber, routeId and capacity are required" });
+    }
+    const routes = await provider.getRoutes();
+    if (!routes.some((r) => r.id === routeId)) {
+      return res.status(400).json({ error: `Unknown routeId: ${routeId}` });
+    }
+    const trip = {
+      tripId: `trip_${nanoid(8)}`,
+      busNumber,
+      serviceNumber,
+      serviceType: serviceType || "PALLEVELUGU",
+      routeId,
+      capacity: Number(capacity),
+      currentKm: 0,
+      status: status || "NOT_STARTED",
+      updatedAt: status === "ACTIVE" ? Date.now() : null,
+      scheduleDelayMinutes: 0,
+      scheduledStartTime: Date.now(),
+    };
+    if (!provider.addBus) return res.status(501).json({ error: "Current data provider doesn't support adding buses" });
+    res.status(201).json(await provider.addBus(trip));
+  });
+
+  router.put("/admin/buses/:tripId", requireAuth, requireRole("ADMIN"), async (req, res) => {
+    if (!provider.updateBus) return res.status(501).json({ error: "Current data provider doesn't support editing buses" });
+    const updated = await provider.updateBus(req.params.tripId, req.body || {});
+    if (!updated) return res.status(404).json({ error: "Bus trip not found" });
+    res.json(updated);
+  });
+
+  // Bulk import: paste/upload a whole { stops, routes, buses } dataset at
+  // once (e.g. one you've digitized from real timetables, or an official
+  // feed export). Existing ids are skipped, not overwritten.
+  router.post("/admin/import", requireAuth, requireRole("ADMIN"), async (req, res) => {
+    const { stops = [], routes = [], buses = [] } = req.body || {};
+    if (!provider.addStop || !provider.addRoute || !provider.addBus) {
+      return res.status(501).json({ error: "Current data provider doesn't support importing data" });
+    }
+    const existingStopIds = new Set((await provider.getStops()).map((s) => s.id));
+    const existingRouteIds = new Set((await provider.getRoutes()).map((r) => r.id));
+    const existingTripIds = new Set((await provider.getActiveTrips()).map((b) => b.tripId));
+
+    let addedStops = 0, addedRoutes = 0, addedBuses = 0;
+    for (const s of stops) if (!existingStopIds.has(s.id)) { await provider.addStop(s); addedStops++; }
+    for (const r of routes) if (!existingRouteIds.has(r.id)) { await provider.addRoute(r); addedRoutes++; }
+    for (const b of buses) if (!existingTripIds.has(b.tripId)) { await provider.addBus(b); addedBuses++; }
+
+    res.status(201).json({ addedStops, addedRoutes, addedBuses });
   });
 
   return router;

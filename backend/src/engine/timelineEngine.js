@@ -1,4 +1,4 @@
-import { getStopById } from "../data/stops.js";
+import { getStopById } from "../data/store.js";
 import { estimateEtaMinutes } from "./etaEngine.js";
 
 /**
